@@ -23,8 +23,6 @@
 #define PORTNUM 32323
 #define ADDRESSSTR "127.0.0.1"
 
-int port = 32323;
-std::string address = "127.0.0.1";
 
 /**
  * @brief Function displays help and usage of the script if -h or --help option was used
@@ -55,35 +53,93 @@ void displayHelp() {
                     "--------------------------------------------------------------------\n\n");
 }
 
+bool in_array(const std::string &value, const std::vector<std::string> &array)
+{
+    return std::find(array.begin(), array.end(), value) != array.end();
+}
 
-int processArguments() {
+int processArguments(int argc, char **argv) {
     return SUCCESS;
 }
 
-void printShit(int &num) {
-    std::cout << num;
-}
+// void printShit(int &num) {
+//     std::cout << num;
+// }
 
-template<typename T>
-T sumMyVec(std::vector<T> input) {
-    T sum = 0;
-    std::for_each(input.cbegin(), input.cend(), [&](T n){ sum += n; });
+// template<typename T>
+// T sumMyVec(std::vector<T> input) {
+//     T sum = 0;
+//     std::for_each(input.cbegin(), input.cend(), [&](T n){ sum += n; });
 
-    return sum;
-}
+//     return sum;
+// }
 
 int main (int argc, char **argv) {
+    /* ----------------------- PROCESSING OF ENTERED ARGUMENTS ----------------------- */
+    int nCommands = 0;
+    std::vector<std::string> commands {"register", "login", "send", "list", "fetch"};
+
+    int port = 32323;
+    std::string address = "127.0.0.1";
+
     if(argc == 1) {
         std::cerr << "error: client expects <command> [<args>] ... \n       0 arguments given \n       see '-h', or '--help'" << "\n";
         return ARG_ERROR;
-    }
+    } 
 
-    if (argv[1] == "-h" || argv[1] == "--help") {
-        std::cout << "bichis" << "\n";
-        displayHelp();
-        return SUCCESS;
+    for(int i = 1; i < argc; i++) {
+        if(strcmp( argv[i], "-h" ) == 0 || strcmp( argv[i], "--help" ) == 0)  {
+            displayHelp();
+            return SUCCESS;
+        } 
+
+        if(in_array(argv[i], commands)) {
+            nCommands++;
+        } 
+
+        /* --port */
+        if(strcmp(argv[i], "-p" ) == 0 || strcmp(argv[i], "--port" ) == 0) {
+            if(sscanf(argv[i+1], "%d", &port) != 1) {
+                std::cerr << "error: converting string to integer failed" << "\n";
+                return INTERNAL_ERR; 
+            } 
+
+            if(port < 0 || port > 65635) {
+                std::cerr << "error: invalid port number or invalid use of options" << "\n";
+                return ARG_ERROR; 
+            }
+        } 
+
+        /* --address */
+        if(strcmp(argv[i], "-a" ) == 0 || strcmp(argv[i], "--address" ) == 0) {
+            address = argv[i+1];
+
+            /*TODO: check if correct ip address was entered*/
+            if(0) {
+                std::cerr << "error: invalid ip address or invalid use of options" << "\n";
+                return ARG_ERROR; 
+            }
+        }
+
+        /* register */
+        /* login */
+        /* send */
+        /* list */
+        /* fetch */
+
+    } 
+
+    if(nCommands > 1) {
+        std::cerr << "error: single command allowed" << "\n";
+        return ARG_ERROR;
+    } else if(nCommands == 0) {
+        std::cerr << "error: no command specified" << "\n";
+        return ARG_ERROR;
     }
-    
+    /* ------------------------------------------------------------------------------ */
+
+
+
     // if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
     //         displayHelp();
     //         return SUCCESS;
