@@ -34,22 +34,8 @@
 //TODO na toto sa pozriet a nadefinovat to lepsie
 #define PORT 32323
 #define ADDRESSSTR "127.0.0.1"
-#define MAXDATASIZE 100
 #define SIZE 1000
-
-
-struct user {
-    std::string login;
-    std::string passwd_hash;
-};
-
-struct message {
-    std::string id;
-    std::string login;
-    std::string subject;
-};
-
-//TODO kontrola, ci je user uz logged in a registered je zbytocna, pretoze to mi povie server
+#define MAX_SIZE 1024
 
 /**
  * @brief Function displays help and usage of the script if -h or --help option was used
@@ -185,15 +171,14 @@ std::vector<std::string> split(const std::string &s, char delim) {
 int main (int argc, char **argv) {
     /* ------------------------- PROCESSING OF CMD ARGUMENTS ------------------------- */
     int nCommands = 0;
-    std::vector<std::string> commands {"register", "login", "send", "list", "fetch", "logout"};
-
     int port = 32323;
-    std::string address = "127.0.0.1";
+    std::vector<std::string> commands {"register", "login", "send", "list", "fetch", "logout"};
+    
     struct sockaddr_in sa; 
+    std::string address = "127.0.0.1";
     std::string command;
     std::string outgoing_message;
 
-    std::vector<user> registered_users;
     std::string login_hash;
     std::string final_login_hash;
 
@@ -202,6 +187,7 @@ int main (int argc, char **argv) {
         return ARG_ERROR;
     } 
 
+    /* ----- Checking the validity of arguments and creation of request string */
     for(int i = 1; i < argc; i++) {
         if(strcmp( argv[i], "-h" ) == 0 || strcmp( argv[i], "--help" ) == 0)  {
             displayHelp();
@@ -211,7 +197,6 @@ int main (int argc, char **argv) {
         if(in_array(argv[i], commands)) {
             nCommands++;
             command = argv[i];
-
             
             if(strcmp(argv[i], "register" ) == 0) {
             /* ------------------------- REGISTER ------------------------- */
@@ -224,22 +209,10 @@ int main (int argc, char **argv) {
                 std::string incoming_login = argv[i+1];
                 std::string incoming_passwd = argv[i+2];
 
-                // TODO encode to base64
-                
-                // check if user with same login argv[i+1] is already in table
-                for(std::vector<user>::iterator i = registered_users.begin(); i != registered_users.end(); ++i) {
-                    if(strcmp(((*i).login).c_str(), incoming_login.c_str()) == 0) {
-                        std::cerr << "ERROR: user with same login already registered" << "\n";
-                        return ERROR;
-                    }
-                }
                 int len_str = incoming_passwd.length();
                 char pass_str[len_str + 1];
                 strcpy(pass_str, incoming_passwd.c_str());
                 incoming_passwd = base64Encoder(pass_str, len_str);
-                // create new user and add it to vector registered users
-                user User = {incoming_login, incoming_passwd};
-                registered_users.push_back(User);
                 
                 // concatenate the strings into message for server (register "login" "base64passwd")
                 outgoing_message = "(" + command + " \"" + incoming_login + "\" " + "\"" + incoming_passwd + "\"" + ")";
@@ -252,15 +225,13 @@ int main (int argc, char **argv) {
 
                 std::string incoming_login = argv[i+1];
                 std::string incoming_passwd = argv[i+2];
-                // TODO encode to base64
+                
                 int len_str = incoming_passwd.length();
                 char pass_str[len_str + 1];
                 strcpy(pass_str, incoming_passwd.c_str());
                 incoming_passwd = base64Encoder(pass_str, len_str);
 
                 outgoing_message = "(" + command + " \"" + incoming_login + "\" " + "\"" + incoming_passwd + "\"" + ")";
-                std::cout << outgoing_message << "\n";
-
             } else if(strcmp(argv[i], "send" ) == 0) {
             /* ------------------------- SEND ------------------------- */
                 if(i+3>=argc) {
@@ -287,7 +258,12 @@ int main (int argc, char **argv) {
                     return ARG_ERROR;
                 }
 
-                // TODO check if argument is a number
+                int test;
+                if(sscanf(argv[i+1], "%d", &test) != 1) {
+                    std::cerr << "error: invalid fetch id" << "\n";
+                    return ARG_ERROR; 
+                }
+
                 std::ifstream t("login-token");
                 std::stringstream login_hash_token;
 
@@ -300,13 +276,14 @@ int main (int argc, char **argv) {
                 login_hash_token << t.rdbuf();
 
                 outgoing_message = "(" + command + " \"" + login_hash_token.str() + "\"" + ")";
+            /* -------------------------------------------------------- */   
             } 
         } 
 
         /* --port */
         if(strcmp(argv[i], "-p" ) == 0 || strcmp(argv[i], "--port" ) == 0) {
             if(sscanf(argv[i+1], "%d", &port) != 1) {
-                std::cerr << "error: converting string to integer failed" << "\n";
+                std::cerr << "error: invalid characters in port" << "\n";
                 return INTERNAL_ERR; 
             } 
 
@@ -342,12 +319,13 @@ int main (int argc, char **argv) {
     }
     /* ------------------------------------------------------------------------------- */
 
+    /* --------------- ESTABLISHMENT OF THE TCP COMMUNICATION ------------------------ */
     // TODO OCITOVAT
     int sock = 0, valread;
     struct sockaddr_in serv_addr;
-    char buffer[1024] = {0};
+    char buffer[MAX_SIZE] = {0};
     std::string buffer_copy;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         std::cerr << "error: socket creation error." << "\n";
         return CONNECTION_ERROR; 
     } 
@@ -361,15 +339,19 @@ int main (int argc, char **argv) {
     }
 
     if(connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        close(sock); // TODO is this ok?
         std::cerr << "error: connection failed." << "\n";
         return CONNECTION_ERROR; 
     }
 
     send(sock, outgoing_message.c_str(), outgoing_message.length(), 0);
 
-    valread = read(sock, buffer, 1024);
-    
+    valread = read(sock, buffer, MAX_SIZE);
+
     buffer_copy = buffer;
+    close(sock); //TODO is this ok?
+
+    /* ------------- COMMUNICATION WITH SERVER BASED ON SPECIFIED COMMAND ------------- */
     if(strcmp(command.c_str(), "register" ) == 0) {
         std::vector<std::string> response = split(buffer, '\"');
 
