@@ -14,10 +14,12 @@ message_command = ProtoField.string("isa_protocol.message_command", "Command", b
 err_detail = ProtoField.string("isa_protocol.err_detail", "Error detail", base.ASCII)
 operands_number = ProtoField.int64("isa_protocol.operands_number", "Number of operands", base.DEC)
 login = ProtoField.string("args.login", "Login", base.ASCII)
-
+session_hash_message = ProtoField.string("args.hash", "Session hash", base.ASCII)
+no_args_available = ProtoField.string("args.noargs", "No arguments", base.ASCII)
+server_message_command = ProtoField.string("args.servermessage", "Server message", base.ASCII)
 isa_protocol.fields = {message_state, message_length, message_sender, message_command, err_detail}
-args.fields = {login_operand, password_hash, send_subject_message, send_body_message, fetch_id_message, session_hash}
-serv_operands.fields = {ser_fetch_login_message}
+args.fields = {login_operand, password_hash, send_subject_message, send_body_message, fetch_id_message, session_hash_message, no_args_available, server_message_command}
+serv_operands.fields = {}
 
 function isa_protocol.dissector(buffer, pinfo, tree)
   length = buffer:len()
@@ -26,7 +28,7 @@ function isa_protocol.dissector(buffer, pinfo, tree)
   pinfo.cols.protocol = isa_protocol.name
   
   local subtree = tree:add(isa_protocol, buffer(), "ISA Protocol Data")
-  local snd = buffer(0,3):string()
+  local snd = buffer(0,5):string()
   local detail = buffer(6, max):string()
   local sender = get_sender(snd)
   local command = get_command(snd)
@@ -34,8 +36,14 @@ function isa_protocol.dissector(buffer, pinfo, tree)
   local num_of_args = get_args_num(sender, command)
   local message = buffer(0,length):string()
   local login = get_login(command, message)
-  local password_hash = get_passwd_hash(message)
-  local sesh_hash = get_session_hash(message)
+  local password_hash = get_passwd_hash(message) 
+  local server_command = buffer(0,6):string()
+  serv_command = get_serv_command(server_command)
+
+  server_message_command = "Command: " .. serv_command
+
+  sesh_hash = get_session_hash(message)
+  session_hash_message = "Session hash: " .. sesh_hash
 
   if command == "fetch" then 
     fetch_id = get_fetch_id(message)
@@ -61,7 +69,7 @@ function isa_protocol.dissector(buffer, pinfo, tree)
 
   login_operand = "Login: " .. login
   password_hash = "Password hash: " .. password_hash
-  session_hash = "Session hash: " .. sesh_hash
+  no_args_available = "No operands"
 
   if sender == "server" then subtree:add_le(message_state, buffer(0,3)) end
   subtree:add_le(message_length, buffer(0,4)) 
@@ -74,6 +82,8 @@ function isa_protocol.dissector(buffer, pinfo, tree)
     elseif sender == "client" then pinfo.cols.info = "Command requested by client: " .. command
   end 
 
+  if sender == "server" and state == "SUCCESS" then subtree:add_le(server_message_command, buffer(0,4)) end
+ 
   -- Displaying subtree of operands
   if sender == "client" then
     local subtreeArgs = subtree:add(args, buffer(), "Sent operands")
@@ -84,24 +94,34 @@ function isa_protocol.dissector(buffer, pinfo, tree)
       subtreeArgs:add_le(login_operand, buffer(0,4)) 
       subtreeArgs:add_le(password_hash, buffer(0,4))
     elseif command == "send" then 
-      subtreeArgs:add_le(session_hash, buffer(0,4))
+      subtreeArgs:add_le(session_hash_message, buffer(0,4))
       subtreeArgs:add_le(login_operand, buffer(0,4))
       subtreeArgs:add_le(send_subject_message, buffer(0,4))
       subtreeArgs:add_le(send_body_message, buffer(0,4))
     elseif command == "fetch" then  
-      subtreeArgs:add_le(session_hash, buffer(0,4))
+      subtreeArgs:add_le(session_hash_message, buffer(0,4))
       subtreeArgs:add_le(fetch_id_message, buffer(0,4))
     elseif command == "list" then 
-      subtreeArgs:add_le(session_hash, buffer(0,4))
+      subtreeArgs:add_le(session_hash_message, buffer(0,4))
+    elseif command == "logout" then 
+      subtreeArgs:add_le(session_hash_message, buffer(0,4))
     end
   end 
 
-  -- if sender == "server" then 
-  --   if (command == "fetch" or command == "list") then 
-  --     local servSubtreeArgs = subtree:add(serv_operands, buffer(), "Operands")
-  --     if command == "fetch" then
-  --       servSubtreeArgs:add_le(ser_fetch_login_message, buffer(0,4))
-  --     end
+  -- if sender == "server" then
+  --   if state == "SUCCESS" then 
+  --     if serv_command == "login" then 
+  --       subtreeArgs:add_le(session_hash_message, buffer(0,4))
+  --     elseif serv_command == "register" then
+  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
+  --     elseif serv_command == "send" then 
+  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
+  --     elseif serv_command == "logout" then 
+  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
+  --     end 
+
+  --   elseif state == "ERROR" then 
+  --     subtreeArgs:add_le(no_args_available, buffer(0,4))
   --   end
   -- end
   ------------------------------------
@@ -110,8 +130,9 @@ end
 -- ----------------- -- Other functions
 function get_state(st)
   local state = "Unknown"
-  if st == "(ok" then state = "SUCCESS"
-  elseif st == "(er" then state = "ERROR"
+  if st == "(ok \"" then state = "SUCCESS"
+  elseif st == "(ok (" then state = "SUCCESS"
+  elseif st == "(err " then state = "ERROR"
   end
   return state
 end
@@ -119,8 +140,9 @@ end
 function get_sender(snd)
   local sender = "Unknown"
 
-  if snd == "(ok" then sender = "server"
-  elseif snd == "(er" then sender = "server"
+  if snd == "(ok \"" then sender = "server"
+  elseif snd == "(ok (" then sender = "server"
+  elseif snd == "(err " then sender = "server"
   else sender = "client" end
 
   return sender
@@ -128,11 +150,12 @@ end
 
 function get_command(cmd)
   local command = "Unknown"
-  if cmd == "(lo" then command = "login"
-  elseif cmd == "(re" then command = "register"
-  elseif cmd == "(se" then command = "send"
-  elseif cmd == "(fe" then command = "fetch"
-  elseif cmd == "(li" then command = "list"
+  if cmd == "(logi" then command = "login"
+  elseif cmd == "(regi" then command = "register"
+  elseif cmd == "(send" then command = "send"
+  elseif cmd == "(fetc" then command = "fetch"
+  elseif cmd == "(list" then command = "list"
+  elseif cmd == "(logo" then command = "logout"
   end
   return command
 end 
@@ -201,6 +224,25 @@ end
 function get_ser_fetch_login(command)
   login = "unknown"
   return login
+end
+
+function get_serv_command(cmd)
+  command = "Unknown"
+  if cmd == "(ok \"r" then
+    command = "register"
+  elseif cmd == "(ok \"u" then 
+    command = "login"
+  elseif cmd == "(ok \"m" then
+    command = "send"
+  elseif cmd == "(ok (\"" then
+    command = "fetch"
+  elseif cmd == "(ok ((" then
+    command = "list"
+  elseif cmd == "(ok \"l" then
+    command = "logout"
+  end
+
+  return command
 end
 
 local tcp_port = DissectorTable.get("tcp.port")
