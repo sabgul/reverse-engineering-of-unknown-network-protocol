@@ -5,7 +5,6 @@
 
 isa_protocol = Proto("ISApro",  "ISA Protocol")
 args = Proto("args", "arguments")
-serv_operands = Proto("servArgs", "server arguments")
 
 message_length = ProtoField.int64("isa_protocol.message_length", "Length of message", base.DEC)
 message_state = ProtoField.string("isa_protocol.message_state", "State", base.ASCII)
@@ -17,9 +16,10 @@ login = ProtoField.string("args.login", "Login", base.ASCII)
 session_hash_message = ProtoField.string("args.hash", "Session hash", base.ASCII)
 no_args_available = ProtoField.string("args.noargs", "No arguments", base.ASCII)
 server_message_command = ProtoField.string("args.servermessage", "Server message", base.ASCII)
-isa_protocol.fields = {message_state, message_length, message_sender, message_command, err_detail}
-args.fields = {login_operand, password_hash, send_subject_message, send_body_message, fetch_id_message, session_hash_message, no_args_available, server_message_command}
-serv_operands.fields = {}
+dump = ProtoField.string("args.messageDump", "Raw message", base.ASCII)
+
+isa_protocol.fields = {message_state, message_length, message_sender, message_command, err_detail, server_message_command}
+args.fields = {login_operand, password_hash, send_subject_message, send_body_message, fetch_id_message, session_hash_message, dump}
 
 function isa_protocol.dissector(buffer, pinfo, tree)
   length = buffer:len()
@@ -66,14 +66,16 @@ function isa_protocol.dissector(buffer, pinfo, tree)
   message_command = "Message command: " .. command
   error_detail = "Error detail: " .. detail
   operands_number = "Number of required operands: " .. num_of_args
+  dump = "ASCII dump: " .. message
 
   login_operand = "Login: " .. login
   password_hash = "Password hash: " .. password_hash
   no_args_available = "No operands"
-
+  
   if sender == "server" then subtree:add_le(message_state, buffer(0,3)) end
   subtree:add_le(message_length, buffer(0,4)) 
   subtree:add_le(message_sender, buffer(0,3))
+  subtree:add_le(dump, buffer(0,3))
   if sender == "client" then subtree:add_le(message_command, buffer(0,3)) end
   if state == "ERROR" then subtree:add_le(error_detail, buffer(0,3)) end
   if sender == "client" then subtree:add_le(operands_number, buffer(0,3)) end 
@@ -107,24 +109,6 @@ function isa_protocol.dissector(buffer, pinfo, tree)
       subtreeArgs:add_le(session_hash_message, buffer(0,4))
     end
   end 
-
-  -- if sender == "server" then
-  --   if state == "SUCCESS" then 
-  --     if serv_command == "login" then 
-  --       subtreeArgs:add_le(session_hash_message, buffer(0,4))
-  --     elseif serv_command == "register" then
-  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
-  --     elseif serv_command == "send" then 
-  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
-  --     elseif serv_command == "logout" then 
-  --       subtreeArgs:add_le(no_args_available, buffer(0,4))
-  --     end 
-
-  --   elseif state == "ERROR" then 
-  --     subtreeArgs:add_le(no_args_available, buffer(0,4))
-  --   end
-  -- end
-  ------------------------------------
 end
 
 -- ----------------- -- Other functions
