@@ -28,20 +28,25 @@
 #define SUCCESS 0
 #define ARG_ERROR 1
 #define ERROR 2
-#define SERVER_ERROR -1
+#define CONNECTION_ERROR -1
 #define INTERNAL_ERR 99
 
 //TODO na toto sa pozriet a nadefinovat to lepsie
-#define PORTNUM 32323
+#define PORT 32323
 #define ADDRESSSTR "127.0.0.1"
 #define MAXDATASIZE 100
-#define PRT "32323"
 #define SIZE 1000
 
 
 struct user {
     std::string login;
     std::string passwd_hash;
+};
+
+struct message {
+    std::string id;
+    std::string login;
+    std::string subject;
 };
 
 //TODO kontrola, ci je user uz logged in a registered je zbytocna, pretoze to mi povie server
@@ -269,13 +274,25 @@ int main (int argc, char **argv) {
 
                 outgoing_message = "(" + command + " \"" + login_hash_token.str() + "\"" + " \"" + argv[i+1] + "\"" + " \"" + argv[i+2] + "\"" + " \"" +argv[i+3] + "\"" +")";
             } else if(strcmp(argv[i], "list") == 0) {
+            /* ------------------------- LIST ------------------------- */
                 std::ifstream t("login-token");
                 std::stringstream login_hash_token;
                 login_hash_token << t.rdbuf();
                 
                 outgoing_message = "(" + command + " \"" + login_hash_token.str() + "\"" + ")";
             } else if(strcmp(argv[i], "fetch") == 0) {
+            /* ------------------------- FETCH ------------------------- */
+                if(i+1>=argc) {
+                    std::cerr << "error: invalid number of arguments for command login" << "\n";
+                    return ARG_ERROR;
+                }
 
+                // TODO check if argument is a number
+                std::ifstream t("login-token");
+                std::stringstream login_hash_token;
+
+                login_hash_token << t.rdbuf();
+                outgoing_message = "(" + command + " \"" + login_hash_token.str() + "\" " + argv[i+1] +")";
             } else if(strcmp(argv[i], "logout") == 0) {
             /* ------------------------ LOGOUT ------------------------ */
                 std::ifstream t("login-token");
@@ -314,13 +331,6 @@ int main (int argc, char **argv) {
             }
         }
 
-        /*todo check if valid login was entered, if user isn't already registered, and if correct number of args was entered*/
-        /* register */
-        /* login */
-        /* send */
-        /* list */
-        /* fetch */
-        /* logout */
     } 
 
     if(nCommands > 1) {
@@ -336,37 +346,38 @@ int main (int argc, char **argv) {
     int sock = 0, valread;
     struct sockaddr_in serv_addr;
     char buffer[1024] = {0};
+    std::string buffer_copy;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         std::cerr << "error: socket creation error." << "\n";
-        return ERROR; 
+        return CONNECTION_ERROR; 
     } 
 
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(PORTNUM);
+    serv_addr.sin_port = htons(PORT);
 
     if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0) {
         std::cerr << "error: address error." << "\n";
-        return ERROR; 
+        return CONNECTION_ERROR; 
     }
 
     if(connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         std::cerr << "error: connection failed." << "\n";
-        return ERROR; 
+        return CONNECTION_ERROR; 
     }
 
     send(sock, outgoing_message.c_str(), outgoing_message.length(), 0);
-    std::cout << "Message sent: " << outgoing_message << "\n";
 
     valread = read(sock, buffer, 1024);
-    std::cout << "Message received: " << buffer << "\n";
-
+    
+    buffer_copy = buffer;
     if(strcmp(command.c_str(), "register" ) == 0) {
         std::vector<std::string> response = split(buffer, '\"');
 
         if(strcmp(response.at(0).c_str() ,"(ok ") == 0) {
             std::cout << "SUCCESS: "<< response.at(1) << "\n";
         } else {
-            std::cout << "ERROR: "<< response.at(1) << "\n";
+            std::cerr << "ERROR: "<< response.at(1) << "\n";
+            return ERROR;
         }
     } else if(strcmp(command.c_str(), "login" ) == 0) {
         /* splits the response from server into chunks conatining login token and state of operation*/
@@ -380,7 +391,8 @@ int main (int argc, char **argv) {
             tokenFile << login_hash;
             tokenFile.close();
         } else {
-            std::cout << "ERROR: "<< response.at(1) << "\n";
+            std::cerr << "ERROR: "<< response.at(1) << "\n";
+            return ERROR;
         }
     } else if(strcmp(command.c_str(), "send" ) == 0) {
         std::vector<std::string> response = split(buffer, '\"');
@@ -388,25 +400,68 @@ int main (int argc, char **argv) {
         if(strcmp(response.at(0).c_str() ,"(ok ") == 0) {
             std::cout << "SUCCESS: "<< response.at(1) << "\n";
         } else {
-            std::cout << "ERROR: "<< response.at(1) << "\n";
+            std::cerr << "ERROR: "<< response.at(1) << "\n";
+            return ERROR;
         }
     } else if(strcmp(command.c_str(), "list" ) == 0) {
-        //TODO add all listed messages into structure ?? parse them and then display
+        if(strcmp(buffer, "(ok ())") == 0) {
+            std::cout << "INFO: server responded with empty message.\n";
+            return SUCCESS;
+        }
+
         std::vector<std::string> response = split(buffer, ' ');
         if(strcmp(response.at(0).c_str() ,"(ok") == 0) {
             std::cout << "SUCCESS: \n";
+            buffer_copy.erase(0,5);
+            buffer_copy.erase(buffer_copy.length()-2, buffer_copy.length());
+
+            std::vector<std::string> listed_messages = split(buffer_copy, ')');
+            listed_messages.at(0).erase(0,1);
+            std::vector<std::string> first_message_parts = split(listed_messages.at(0), '\"');
+            first_message_parts.at(0).erase(first_message_parts.at(0).length()-1, first_message_parts.at(0).length());
+            std::cout << first_message_parts.at(0) << ": \n";
+            std::cout << "  From: " << first_message_parts.at(1) << "\n";
+            std::cout << "  Subject: " << first_message_parts.at(3) << "\n";
+
+            for(int i = 1; i < listed_messages.size(); i++) {
+                listed_messages.at(i).erase(0,2);
+                std::vector<std::string> message_parts = split(listed_messages.at(i), '\"');
+                message_parts.at(0).erase(message_parts.at(0).length()-1, message_parts.at(0).length());
+                std::cout << message_parts.at(0) << ": \n";
+                std::cout << "  From: " << message_parts.at(1) << "\n";
+                std::cout << "  Subject: " << message_parts.at(3) << "\n";
+            }
+
         } else {
-            std::cout << "ERROR: listing of sent messages failed.\n";
+            std::cerr << "ERROR: listing of sent messages failed.\n";
             return ERROR;
         }
+
     } else if(strcmp(command.c_str(), "fetch" ) == 0) {
+        std::vector<std::string> response = split(buffer, ' ');
+        if(strcmp(response.at(0).c_str() ,"(ok") == 0) {
+            std::cout << "SUCCESS: \n\n";
+            buffer_copy.erase(0,6);
+            buffer_copy.erase(buffer_copy.length()-2, buffer_copy.length());
+
+            std::vector<std::string> fetched_parts = split(buffer_copy, '\"');
+
+            std::cout << "From: " << fetched_parts.at(0) << "\n";
+            std::cout << "Subject: " << fetched_parts.at(2) << "\n\n";
+
+            std::cout << fetched_parts.at(4);
+        } else {
+            std::cerr << "ERROR: listing of sent messages failed.\n";
+            return ERROR;
+        }
 
     } else if ((strcmp(command.c_str(), "logout" ) == 0)) {
         std::vector<std::string> response = split(buffer, '\"');
         if(strcmp(response.at(0).c_str() ,"(ok ") == 0) {
             std::cout << "SUCCESS: "<< response.at(1) << "\n";
         } else {
-            std::cout << "ERROR: "<< response.at(1) << "\n";
+            std::cerr << "ERROR: "<< response.at(1) << "\n";
+            return ERROR;
         }
     }
 
