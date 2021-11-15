@@ -43,78 +43,52 @@ bool in_array(const std::string &value, const std::vector<std::string> &array)
     return std::find(array.begin(), array.end(), value) != array.end();
 }
 
-// TODO prerobit a ocitovat
-char* base64Encoder(char input_str[], int len_str) {
-   
-    // Character set of base64 encoding scheme
-    char char_set[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-      
-    // Resultant string
-    char *res_str = (char *) malloc(SIZE * sizeof(char));
+/**
+ * Function encodes the input string into base64
+ * 
+ * This portion of code was inspired by:
+ * https://www.geeksforgeeks.org/encode-ascii-string-base-64-format/
+ */
+std::string encodeTobase64(char input_str[], int len_str) {
+
+    char base64set[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    std::string result;
       
     int index, no_of_bits = 0, padding = 0, val = 0, count = 0, temp;
-    int i, j, k = 0;
-      
-    // Loop takes 3 characters at a time from
-    // input_str and stores it in val
-    for (i = 0; i < len_str; i += 3)
-        {
-            val = 0, count = 0, no_of_bits = 0;
+    int k = 0;
+
+    for(int i = 0; i < len_str; i += 3) {
+        val = 0, count = 0;
   
-            for (j = i; j < len_str && j <= i + 2; j++)
-            {
-                // binary data of input_str is stored in val
-                val = val << 8;
-                  
-                // (A + 0 = A) stores character in val
-                val = val | input_str[j];
-                  
-                // calculates how many time loop
-                // ran if "MEN" -> 3 otherwise "ON" -> 2
-                count++;
-              
+        for(int j = i; j < len_str && j <= i + 2; j++) {
+            val = val << 8;
+            val = val | input_str[j];
+            count++;
+        }
+  
+        no_of_bits = count * 8;
+        while(no_of_bits != 0) {
+            if(no_of_bits >= 6) {
+                temp = no_of_bits - 6; /* 63 in binary 111111 */
+                index = (val >> temp) & 63;
+                no_of_bits -= 6;        
+            } else {
+                temp = 6 - no_of_bits;
+                index = (val << temp) & 63;
+                no_of_bits = 0;
             }
-  
-            no_of_bits = count * 8;
-  
-            // calculates how many "=" to append after res_str.
-            padding = no_of_bits % 3;
-  
-            // extracts all bits from val (6 at a time)
-            // and find the value of each block
-            while (no_of_bits != 0)
-            {
-                // retrieve the value of each block
-                if (no_of_bits >= 6)
-                {
-                    temp = no_of_bits - 6;
-                      
-                    // binary of 63 is (111111) f
-                    index = (val >> temp) & 63;
-                    no_of_bits -= 6;        
-                }
-                else
-                {
-                    temp = 6 - no_of_bits;
-                      
-                    // append zeros to right if bits are less than 6
-                    index = (val << temp) & 63;
-                    no_of_bits = 0;
-                }
-                res_str[k++] = char_set[index];
-            }
+            result = result + base64set[index];
+        }
     }
-  
-    // padding is done here
-    for (i = 1; i <= padding; i++)
-    {
-        res_str[k++] = '=';
+
+    padding = (count * 8) % 3;
+    for(int i = 1; i <= padding; i++) {
+        result = result + '=';
     }
-  
-    res_str[k] = '\0';
-  
-    return res_str;
-}
+
+    return result;
+} 
 
 /**
  * Checks if valid number of commands was entered
@@ -149,7 +123,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
 }
 
 /*
-* @brief Function processes the response obtained from server and displays the data
+* Function processes the response obtained from server and displays the data
 */
 int servResponse(std::string command, char *buffer, std::string login_hash, std::string buffer_copy) {
     if(strcmp(command.c_str(), "register" ) == 0) {
@@ -257,7 +231,7 @@ int servResponse(std::string command, char *buffer, std::string login_hash, std:
 }
 
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
     int nCommands = 0;
     int isIPv4, isIPv6;
     int operandsNum;
@@ -303,7 +277,7 @@ int main (int argc, char **argv) {
                 int len_str = incoming_passwd.length();
                 char pass_str[len_str + 1];
                 strcpy(pass_str, incoming_passwd.c_str());
-                incoming_passwd = base64Encoder(pass_str, len_str);
+                incoming_passwd = encodeTobase64(pass_str, len_str);
                 
                 /* concatenate the strings into message for server (register "login" "base64passwd") */
                 outgoing_message = "(" + command + " \"" + incoming_login + "\" " + "\"" + incoming_passwd + "\"" + ")";
@@ -320,7 +294,7 @@ int main (int argc, char **argv) {
                 int len_str = incoming_passwd.length();
                 char pass_str[len_str + 1];
                 strcpy(pass_str, incoming_passwd.c_str());
-                incoming_passwd = base64Encoder(pass_str, len_str);
+                incoming_passwd = encodeTobase64(pass_str, len_str);
 
                 outgoing_message = "(" + command + " \"" + incoming_login + "\" " + "\"" + incoming_passwd + "\"" + ")";
             } else if(strcmp(argv[i], "send" ) == 0) {
