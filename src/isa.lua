@@ -86,7 +86,7 @@ function isa_protocol.dissector(buffer, pinfo, tree)
 
   if sender == "server" and state == "SUCCESS" then subtree:add_le(server_message_command, buffer(0,4)) end
  
-  -- Displaying subtree of operands
+  -- Displaying subtree of operands for the client side of communication
   if sender == "client" then
     local subtreeArgs = subtree:add(args, buffer(), "Sent operands")
     if command == "register" then 
